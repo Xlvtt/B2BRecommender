@@ -18,7 +18,7 @@ const BuyerSelect = ({ buyers, onSelect }) => {
     setShowCreate(false);
   };
 
-  return (
+  return ( // Вот эта штука возвращает мне как раз нужный мне формат, а она возвращает мне просто белый json
     <motion.div
       className="buyer-select"
       initial={{ opacity: 0 }}

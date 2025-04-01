@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import BuyerSelect from './components/BuyerSelect';
-import RecommendationCard from './components/RecommendationCard';
 import './index.css';
+import BuyerSelect from './components/BuyerSelect.js';
+import RecommendationCard from './components/RecommendationCard.js';
 
 function App() {
   const [buyers, setBuyers] = useState([]);
@@ -9,9 +9,13 @@ function App() {
   const [recommendations, setRecommendations] = useState([]);
 
   useEffect(() => {
-    fetch('http://localhost:8000/buyers')
-      .then(res => res.json())
-      .then(data => setBuyers(data));
+     fetch('http://localhost:8000/buyers')
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+          return res.json();
+        })
+        .then(data => setBuyers(data))
+        .catch(error => console.error("Fetch error:", error));
   }, []);
 
   const handleRecommendations = (buyerId) => {
