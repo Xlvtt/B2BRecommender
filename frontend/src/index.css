@@ -1,0 +1,28 @@
+:root {
+  --primary-red: #FF4757;
+  --primary-blue: #2F89FC;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 20px;
+}
+
+.card {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  margin: 1rem 0;
+  padding: 1.5rem;
+  transition: transform 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
