@@ -1,4 +1,7 @@
 import os
+
+import pandas as pd
+
 from loader import DataLoader
 from rectools.models import ImplicitALSWrapperModel
 from rectools.dataset import Dataset
@@ -39,7 +42,7 @@ class Recommender:
             Dataset.construct(self.train_data)
         )
 
-    def recommend(self, buyer_id, k=10):
+    def recommend(self, buyer_id, k=10) -> pd.Series:
         model = self.model
         if buyer_id not in self.train_data[Columns.User].unique():
             model = self.cold_model

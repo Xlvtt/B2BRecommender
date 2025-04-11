@@ -35,8 +35,62 @@ class DataLoader:
         self.df_person.loc[len(self.df_person)] = [buyer_id, region]
 
     def get_buyer_info(self, buyer_id):
-        pass
+        region = self.buyers["FINAL_PARENT_OKATO_NAME"][self.buyers["PERSON_ID"] == buyer_id].iloc[0]
+
+        interactions = self.df_train[self.df_train["BUYER_PERSON_ID"] == buyer_id]
+        lots = self.df_lot[self.df_lot["LOT_ID"].isin(interactions["LOT_ID"].unique())].reset_index()
+
+        offers_count = interactions["IS_SELLER"].sum()
+        unique_offers_count = interactions.groupby("OFFER_PERSON_ID")["IS_SELLER"].max().sum()
+
+        max_start_price = lots["TOTAL_START_PRICE_RUBLES"].max()
+        min_start_price = lots["TOTAL_START_PRICE_RUBLES"].min()
+
+        offers = pd.merge(interactions["LOT_ID"], self.df_offer, on="LOT_ID", how="inner")
+        max_end_price = offers["OFFERED_PRICE_RUBLES"].max()
+        min_end_price = offers["OFFERED_PRICE_RUBLES"].min()
+
+        try:
+            favourite_seller = interactions["OFFER_PERSON_ID"].value_counts().index[0]
+        except IndexError:
+            favourite_seller = None
+
+        return {
+            "region": region,
+            "unique_offers_count": unique_offers_count,
+            "offers_count": offers_count,
+            "lots_info": lots.head(5),
+            "max_start_price": max_start_price,
+            "min_start_price": min_start_price,
+            "max_end_price": max_end_price,
+            "min_end_price": min_end_price,
+            "favourite_seller_info": favourite_seller
+        }
 
     def get_seller_info(self, seller_id):
-        pass
+        region = self.df_person[self.df_person["PERSON_ID"] == seller_id].reset_index()["FINAL_PARENT_OKATO_NAME"].iloc[0]
+        interactions = self.df_train[self.df_train["OFFER_PERSON_ID"] == seller_id]
 
+        lots = self.df_lot[self.df_lot["LOT_ID"].isin(interactions["LOT_ID"].unique())].reset_index()
+
+        total_wins = interactions["IS_SELLER"].sum()
+        total_lots = len(interactions)
+        win_rate = f"{round(100 * total_wins / total_lots, 2)}%"
+
+        flags_list = ["CANCELLED_FLAG", "INCONSISTENT_FLAG", "UNCONSIDERED_FLAG", "REJECT_FLAG", "CUSTOMER_REFUSAL_FLAG"]
+        offers = self.df_offer[self.df_offer.isin(lots["LOT_ID"])].reset_index()
+
+        flags_rates = {flag: f"{round(100 * offers[flag].sum() / len(interactions), 2)}%" for flag in flags_list}
+
+        result = {
+            "region": region,
+            "win_rate": win_rate,
+            "total_wins": total_wins,
+            "total_lots": total_lots,
+            "lots_info": lots.head(5)
+        }
+        result.update(flags_rates)
+        return result
+
+        # TODO число шагов и дианмика цен
+        # TODO инфо для новых заказчиков

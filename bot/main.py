@@ -1,6 +1,8 @@
 import os
 import time
 
+import aiogram.exceptions
+import numpy as np
 import pandas as pd
 import logging
 from aiogram import Bot, Dispatcher, types, F
@@ -59,7 +61,7 @@ async def start_handler(message: types.Message):
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="Войти по ID")],
-                [KeyboardButton(text="Зарегистрироваться")]
+                [KeyboardButton(text="Зарегистрироваться")],
             ],
             resize_keyboard=True
         )
@@ -113,7 +115,7 @@ async def process_login(message: types.Message, state: FSMContext):
             await state.clear()
             await show_main_menu(message, buyer_id)
         else:
-            samples = ", ".join([str(id) for id in data_loader.buyers["PERSON_ID"].sample(n=10, random_state=int(time.time())).values])
+            samples = ", ".join([str(buyer_id) for buyer_id in data_loader.buyers["PERSON_ID"].sample(n=10, random_state=int(time.time())).values])
             await message.answer(f"ID не найден. Попробуйте еще раз.\nНапример, выберите один из доступных:\n{samples}")
     except ValueError:
         await message.answer("Неверный формат ID. Введите число:")
@@ -132,18 +134,112 @@ async def show_main_menu(message: types.Message, buyer_id: int):
     )
 
 
+async def show_main_menu_no_photo(message: types.Message, buyer_id: int, text: str):
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Моя компания", callback_data=f"company_{buyer_id}")],
+        [InlineKeyboardButton(text="Рекомендации", callback_data=f"recs_{buyer_id}")],
+        [InlineKeyboardButton(text="Выход", callback_data="exit")]
+    ])
+    await message.answer(
+        text=text,
+        reply_markup=markup
+    )
+
+
+def get_dumped_lots(lots_info: pd.DataFrame) -> str:
+    lots_messages = []
+    for i, lot in lots_info.iterrows():
+        lot_message = f"{i + 1}. ЛОТ {lot["LOT_ID"]}\n"\
+            f"\t- Закупка: {lot["LOT_NAME"]}\n"\
+            f"\t- Начальная цена: {lot["TOTAL_START_PRICE_RUBLES"]}\n"
+        lots_messages.append(lot_message)
+    return '\n'.join(lots_messages)
+
+
+def get_formatted_person_info(person_info: dict, message_path: str) -> str:
+    with open(message_path, encoding="utf-8") as message_file:
+        message_text = "".join(message_file.readlines())
+        for key, value in person_info.items():
+            message_text = message_text.replace("{" + key + "}", str(value))
+    return message_text
+
+
 @dp.callback_query(F.data.startswith("company_"))
 async def company_info(callback: types.CallbackQuery):
     buyer_id = int(callback.data.split("_")[1])
-    # TODO Логика отображения информации о компании
-    await callback.message.answer(f"Информация о компании {buyer_id}...")
+    buyer_info = data_loader.get_buyer_info(buyer_id)
+
+    buyer_info["id"] = buyer_id
+    if len(buyer_info["lots_info"]) == 0:
+        buyer_info["lots_info"] = "Вы еще не выставляли ни одного лота :("
+    else:
+        buyer_info["lots_info"] = get_dumped_lots(buyer_info["lots_info"])
+
+    if buyer_info["favourite_seller_info"] is None:
+        buyer_info["favourite_seller_info"] = "Вы еще не взаимодействовали с поставщиками :("
+
+    for key in ["max_start_price", "min_start_price", "max_end_price", "min_end_price"]:
+        if np.isnan(buyer_info[key]):
+            buyer_info[key] = "?"
+
+    message_text = get_formatted_person_info(buyer_info, "messages/buyers.txt")
+
+    await show_main_menu_no_photo(callback.message, buyer_id, message_text)
 
 
 @dp.callback_query(F.data.startswith("recs_"))
-async def get_recommendations(callback: types.CallbackQuery):
+async def get_recommendations(callback: types.CallbackQuery, state: FSMContext):
     buyer_id = int(callback.data.split("_")[1])
-    recs = ", ".join([str(id) for id in recommender.recommend(buyer_id, k=10).values])
-    await callback.message.answer(f"ID рекомендованных поставщиков:\n{recs}")
+
+    recommended_sellers = recommender.recommend(buyer_id, k=10).values
+    await state.update_data(recommended_sellers=recommended_sellers)
+
+    inline_keyboard = [
+        [InlineKeyboardButton(text=f"Поставщик {seller_id}", callback_data=f"seller_{seller_id}_{buyer_id}")]
+        for seller_id in recommended_sellers
+    ]
+    inline_keyboard.append([InlineKeyboardButton(text="В меню", callback_data=f"go_back_{buyer_id}")])
+    markup = InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+
+    await callback.message.answer(
+        text=f"Ваши рекомендации готовы!\nВыберите поставщика для подробной информации:",
+        reply_markup=markup
+    )
+
+
+@dp.callback_query(F.data.startswith("seller_"))
+async def get_seller_info(callback: types.CallbackQuery, state: FSMContext):
+    data = callback.data.split("_")
+    seller_id = int(data[1])
+    buyer_id = int(data[2])
+
+    recommended_sellers = (await state.get_value("recommended_sellers")).tolist()
+
+    inline_keyboard = [
+        [InlineKeyboardButton(text=f"Поставщик {seller_id}", callback_data=f"seller_{seller_id}_{buyer_id}")]
+        for seller_id in recommended_sellers
+    ]
+    inline_keyboard.append([InlineKeyboardButton(text="В меню", callback_data=f"go_back_{buyer_id}")])
+
+    markup = InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+
+    seller_info = data_loader.get_seller_info(seller_id)
+
+    seller_info["lots_info"] = get_dumped_lots(seller_info["lots_info"])
+    seller_info["id"] = seller_id
+
+    message_text = get_formatted_person_info(seller_info, "messages/sellers.txt")
+
+    await callback.message.answer(
+        text=message_text,
+        reply_markup=markup
+    )
+
+
+@dp.callback_query(F.data.startswith("go_back"))
+async def go_back(callback: types.CallbackQuery):
+    buyer_id = int(callback.data.split("_")[-1])
+    await show_main_menu(callback.message, buyer_id)
 
 
 @dp.callback_query(F.data == "exit")
